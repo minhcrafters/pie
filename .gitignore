@@ -1,0 +1,43 @@
+# Rust build directory
+/target
+**/target/
+
+# Python virtual environments
+/.venv
+/venv
+/.venv/
+
+# Python bytecode caches
+__pycache__/
+**/__pycache__/
+
+# Python extension modules and compiled artifacts
+*.py[cod]
+*.so
+*.dylib
+*.dll
+*.rlib
+
+# Project-specific Python package artifacts
+/python/pie/__pycache__
+/python/pie/*.pyd
+
+# Packaging and build directories
+build/
+dist/
+*.egg-info/
+
+# Logs, temp and editor files
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# IDE/editor folders
+.idea/
+.vscode/
+
+# Python/tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
