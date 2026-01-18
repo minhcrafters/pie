@@ -1,4 +1,5 @@
 import math
+import sys
 import time
 import wave
 from typing import List, Tuple
@@ -14,7 +15,7 @@ from scipy import interpolate as interp
 
 WIDTH = 1280
 HEIGHT = 720
-WAV_PATH = "adenosine.wav"
+WAV_PATH = sys.argv[1]
 
 # bars
 NUM_BARS = 128
