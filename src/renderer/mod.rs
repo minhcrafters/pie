@@ -63,35 +63,44 @@ impl Renderer {
         let point_shadow_fbos = Vec::new();
         let point_shadow_maps = Vec::new();
 
-        let geometry_shader =
-            Shader::from_glsl("assets/shaders/geometry.vsh", "assets/shaders/geometry.fsh")?;
-        let lighting_shader =
-            Shader::from_glsl("assets/shaders/lighting.vsh", "assets/shaders/lighting.fsh")?;
-        let composite_shader = Shader::from_glsl(
-            "assets/shaders/composite.vsh",
-            "assets/shaders/composite.fsh",
+        let geometry_shader = Shader::new(
+            include_str!("shaders/geometry.vsh"),
+            include_str!("shaders/geometry.fsh"),
         )?;
-        let directional_shadow_shader = Shader::from_glsl(
-            "assets/shaders/directional_shadow.vsh",
-            "assets/shaders/directional_shadow.fsh",
+        let lighting_shader = Shader::new(
+            include_str!("shaders/lighting.vsh"),
+            include_str!("shaders/lighting.fsh"),
         )?;
-        let point_shadow_shader = Shader::from_glsl(
-            "assets/shaders/point_shadow.vsh",
-            "assets/shaders/point_shadow.fsh",
+        let composite_shader = Shader::new(
+            include_str!("shaders/composite.vsh"),
+            include_str!("shaders/composite.fsh"),
+        )?;
+        let directional_shadow_shader = Shader::new(
+            include_str!("shaders/directional_shadow.vsh"),
+            include_str!("shaders/directional_shadow.fsh"),
+        )?;
+        let point_shadow_shader = Shader::new(
+            include_str!("shaders/point_shadow.vsh"),
+            include_str!("shaders/point_shadow.fsh"),
+        )?;
+        let bloom_shader = Shader::new(
+            include_str!("shaders/bloom.vsh"),
+            include_str!("shaders/bloom.fsh"),
+        )?;
+        let blur_shader = Shader::new(
+            include_str!("shaders/blur.vsh"),
+            include_str!("shaders/blur.fsh"),
+        )?;
+        let light_sphere_shader = Shader::new(
+            include_str!("shaders/light_sphere.vsh"),
+            include_str!("shaders/light_sphere.fsh"),
         )?;
 
-        let bloom_shader =
-            Shader::from_glsl("assets/shaders/bloom.vsh", "assets/shaders/bloom.fsh")?;
-        let blur_shader = Shader::from_glsl("assets/shaders/blur.vsh", "assets/shaders/blur.fsh")?;
-
-        // Create bloom buffers (bright-pass FBO + ping-pong)
         let (bloom_fbo, bloom_color) = unsafe { create_bloom_buffer(width, height) };
         let (pingpong_fbos, pingpong_color) = unsafe { create_pingpong_buffers(width, height) };
 
-        // Configure shader defaults: use per-mesh albedoColor uniform for color mapping.
-        // Texture sampling has been removed; set a sensible default albedoColor so
-        // shaders have a fallback material (rgb = diffuse, a = specular intensity).
         geometry_shader.use_program();
+
         unsafe {
             let loc = gl::GetUniformLocation(
                 geometry_shader.id,
@@ -100,63 +109,32 @@ impl Renderer {
             gl::Uniform4f(loc, 0.95, 0.95, 0.95, 0.5);
         }
 
-        // Configure lighting shader uniforms once if static, but usually done per frame
         lighting_shader.use_program();
         lighting_shader.set_int("gPosition", 0);
         lighting_shader.set_int("gNormal", 1);
         lighting_shader.set_int("gAlbedoSpec", 2);
         lighting_shader.set_int("directionalShadowMap", 3);
+
         // Point shadow maps start at texture unit 4
-        for i in 0..8 {
+        for i in 0..16 {
             let uniform_name = format!("pointShadowMaps[{}]", i);
             lighting_shader.set_int(&uniform_name, 4 + i);
         }
-        // Lighting shader reads albedo/specular from G-buffer, no need for useTexture.
 
-        // Configure composite shader defaults (tone mapping + bloom)
         composite_shader.use_program();
         composite_shader.set_int("scene", 0);
-        // bind bloom blurred texture to unit 1 in composite shader
         composite_shader.set_int("bloomBlur", 1);
         composite_shader.set_int("toneMappingMode", 1);
         composite_shader.set_float("exposure", 1.0);
         composite_shader.set_float("bloomIntensity", 1.0);
 
-        // Configure blur shader uniform sampler
         blur_shader.use_program();
         blur_shader.set_int("image", 0);
 
-        // Bloom extract shader uses sampler 'scene' (the full HDR scene) at unit 0 and threshold uniform
         bloom_shader.use_program();
         bloom_shader.set_int("scene", 0);
-        // Lower threshold so smaller/less-bright emissive spheres are captured by bloom
-        bloom_shader.set_float("threshold", 0.3);
+        bloom_shader.set_float("threshold", 0.05);
 
-        // Create a simple unlit shader for rendering light spheres (inline GLSL)
-        // Fragment shader exposes an `intensity` uniform so the sphere outputs bright HDR color.
-        let light_sphere_vsh = "\
-#version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-void main() {
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
-}";
-        let light_sphere_fsh = "\
-#version 330 core
-layout (location = 0) out vec4 FragColor;
-uniform vec3 color;
-uniform float intensity;
-void main() {
-    // Emit HDR color by multiplying base color by intensity
-    vec3 hdr = color * intensity;
-    FragColor = vec4(hdr, 1.0);
-}";
-        let light_sphere_shader = Shader::new(light_sphere_vsh, light_sphere_fsh)?;
-
-        // Create an icosphere mesh for point lights (small subdivision count for performance)
         let light_sphere = mesh::Mesh::icosphere(2);
 
         Ok(Renderer {

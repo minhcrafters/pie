@@ -5,13 +5,13 @@ edition = "2024"
 
 [lib]
 name = "pie"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 glam = "0.30.10"
 bytemuck = "1"
 rapier3d = { version = "0.32.0", features = ["simd-stable"] }
-sdl2 = { version = "0.38.0", features = ["bundled", "hidapi", "static-link", "raw-window-handle"] }
+sdl2 = { version = "0.38.0", features = ["bundled", "hidapi", "static-link"] }
 tobj = "4.0.3"
 hound = "3.5.1"
 pollster = "0.4.0"
@@ -19,5 +19,4 @@ thiserror = "2.0"
 gl = "0.14.0"
 image = "0.25"
 pyo3 = { version = "0.27.2", features = ["auto-initialize", "extension-module"] }
-nalgebra = "0.33" # Rapier3d 0.22 uses nalgebra 0.33
 resampler = "0.4.1"
