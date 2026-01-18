@@ -8,7 +8,6 @@ uniform float threshold; // luminance threshold for bright-pass
 void main() {
     vec3 hdrColor = texture(scene, TexCoords).rgb;
 
-    // Relative luminance (Rec. 709)
     float luminance = dot(hdrColor, vec3(0.2126, 0.7152, 0.0722));
 
     if (luminance > threshold) {

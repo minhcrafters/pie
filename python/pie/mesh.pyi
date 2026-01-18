@@ -1,37 +1,36 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Tuple
 
 if TYPE_CHECKING:
     import pie.texture
 
 class Mesh:
+    """3D mesh with vertex data and optional texture."""
+
+    texture_id: int
+    color: Optional[Tuple[int, int, int, int]]
     @staticmethod
     def from_obj(path: str) -> "Mesh":
-        """Loads a mesh from an OBJ file located at `path`."""
-
+        """Loads mesh from OBJ file."""
+        ...
     @staticmethod
     def empty() -> "Mesh":
-        """Creates an empty mesh (no vertices)."""
-
+        """Creates empty mesh."""
+        ...
     @staticmethod
     def cube() -> "Mesh":
-        """Creates a cube mesh."""
-
+        """Creates cube mesh."""
+        ...
     @staticmethod
     def icosphere(subdivisions: int) -> "Mesh":
-        """Creates an icosphere mesh with the given number of subdivisions."""
-
+        """Creates icosphere mesh."""
+        ...
     @staticmethod
     def plane() -> "Mesh":
-        """Creates a plane mesh."""
-
+        """Creates plane mesh."""
+        ...
     def set_texture(self, texture: "pie.texture.Texture") -> None:
-        """Attach a color Texture to this mesh.
-
-        The provided `Texture` is treated as a solid RGBA color (r,g,b,a channels 0-255).
-        The mesh will use the texture's color as its albedo (rgb) and the alpha channel
-        as a specular intensity hint. Image-based GPU sampling has been removed; this
-        preserves the previous API shape while switching to color-only mapping.
-        """
-
+        """Attaches texture to mesh."""
+        ...
     def clear_texture(self) -> None:
-        """Remove any attached color from this mesh (revert to default material color)."""
+        """Removes attached texture."""
+        ...

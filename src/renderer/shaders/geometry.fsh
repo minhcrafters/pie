@@ -5,23 +5,21 @@ layout(location = 2) out vec4 gAlbedoSpec;
 
 in vec3 FragPos;
 in vec3 Normal;
+in vec2 TexCoords;
 
-// Per-mesh color mapping (rgb = diffuse color, a = specular intensity)
+uniform sampler2D albedoMap;
+
 uniform vec4 albedoColor;
 
 void main() {
-    // store the fragment position vector in the first gbuffer texture
     gPosition = FragPos;
 
-    // also store the per-fragment normals into the gbuffer
     gNormal = normalize(Normal);
 
-    // Use per-mesh constant color provided by the application.
-    vec3 diffuse = albedoColor.rgb;
+    vec4 texColor = texture(albedoMap, TexCoords);
+    vec3 diffuse = texColor.rgb * albedoColor.rgb;
     float specularIntensity = albedoColor.a;
 
-    // write to G-buffer
     gAlbedoSpec.rgb = diffuse;
-    // store specular intensity in gAlbedoSpec's alpha component
     gAlbedoSpec.a = specularIntensity;
 }

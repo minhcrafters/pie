@@ -34,10 +34,7 @@ impl Shader {
         }
     }
 
-    // Helper to avoid repeated CString creation and to centralize GetUniformLocation.
     fn uniform_location(&self, name: &str) -> i32 {
-        // It's rare that CString::new fails for shader uniform names (they come from literals/format),
-        // so unwrap is acceptable here; keep it local to simplify callers.
         let c = CString::new(name).unwrap();
         unsafe { gl::GetUniformLocation(self.id, c.as_ptr()) }
     }
@@ -100,9 +97,6 @@ fn link_program(vertex: u32, fragment: u32) -> Result<u32, String> {
     }
 }
 
-/// Improved and safe info-log retrieval.
-/// This version queries the actual log length and allocates exactly that much memory,
-/// avoiding unsafe manual set_len usage and ensuring we don't read uninitialized bytes.
 fn check_compile_errors(obj: u32, type_: &str) -> Result<(), String> {
     unsafe {
         let mut success = gl::FALSE as i32;
@@ -110,7 +104,6 @@ fn check_compile_errors(obj: u32, type_: &str) -> Result<(), String> {
         if type_ != "PROGRAM" {
             gl::GetShaderiv(obj, gl::COMPILE_STATUS, &mut success);
             if success != gl::TRUE as i32 {
-                // Query info log length
                 let mut len: i32 = 0;
                 gl::GetShaderiv(obj, gl::INFO_LOG_LENGTH, &mut len);
                 let buf_len = if len > 0 { len as usize } else { 1 };
@@ -125,7 +118,6 @@ fn check_compile_errors(obj: u32, type_: &str) -> Result<(), String> {
         } else {
             gl::GetProgramiv(obj, gl::LINK_STATUS, &mut success);
             if success != gl::TRUE as i32 {
-                // Query info log length
                 let mut len: i32 = 0;
                 gl::GetProgramiv(obj, gl::INFO_LOG_LENGTH, &mut len);
                 let buf_len = if len > 0 { len as usize } else { 1 };

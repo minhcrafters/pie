@@ -5,17 +5,12 @@ class LightType:
     Directional: int = 1
 
 class Light:
-    """Point/directional light exposed from Rust.
-
-    Constructors mirror the Rust API. Use `point()` or `directional()` helpers
-    or call the full constructor.
-    """
+    """Point or directional light."""
 
     position: Tuple[float, float, float]
     color: Tuple[float, float, float]
     radius: float
     light_type: LightType
-
     def __init__(
         self,
         r: float,

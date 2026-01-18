@@ -22,7 +22,7 @@ scene = Scene()
 
 e1 = Entity()
 mesh = Mesh.from_obj("n64_logo.obj")
-mesh.set_texture(Texture.from_color(255, 0, 0, 255))
+# mesh.set_texture(Texture.from_color(255, 0, 0, 255))
 e1.set_mesh(mesh)
 e1.rotation = (0.0, math.radians(45.0), 0.0)
 engine.add_entity(e1)
@@ -39,14 +39,15 @@ g.scale = (100.0, 1.0, 100.0)
 g.set_mesh(Mesh.plane())
 engine.add_entity(g)
 
-directional_light = Light.directional(0.0, -1.0, 0.0)  # direction, color
+directional_light = Light.directional(0.5, 0.5, 0.5)  # color
+directional_light.position = (1.0, -1.0, 0.0)
 engine.add_light(directional_light)
 
 red_light = Light.point(1.0, 0.0, 0.0, 15.0)  # position, color, radius
 # engine.add_light(red_light)
 
 blue_light = Light.point(0.0, 0.3, 1.0, 15.0)
-engine.add_light(blue_light)
+# engine.add_light(blue_light)
 
 audio = AudioSource.from_wav("test.wav", True)
 # audio2 = AudioSource.new_sine(220.0, True)
@@ -78,22 +79,7 @@ while running:
             if str(ev).lower() in ("close", "closerequested", "close_requested"):
                 running = False
                 break
-        if en == "KeyDown":
-            key = (
-                event.fields.get("key")
-                or event.fields.get("keycode")
-                or event.fields.get("scancode")
-                or event.fields.get("sym")
-                or event.fields.get("text")
-                or ""
-            )
-            key = str(key)
-            if key in ("Escape", "Esc"):
-                running = False
-                break
-            if key == "Tab":
-                is_captured = not is_captured
-                engine.set_mouse_capture(is_captured)
+
     if not running:
         break
 
@@ -116,8 +102,13 @@ while running:
     blue_light.position = (xb, y, zb)
     # audio2.position = (xb, y, zb)
 
-    # Tab toggling is handled from the engine.poll_events() loop at the top of the frame
-    # to avoid rapid toggles from key-repeat and to centralize input handling.
+    if engine.is_key_down("Escape"):
+        running = False
+        break
+
+    if engine.is_key_down("Tab"):
+        is_captured = not is_captured
+        engine.set_mouse_capture(is_captured)
 
     rel = engine.get_mouse_rel()
     if rel[0] != 0 or rel[1] != 0:

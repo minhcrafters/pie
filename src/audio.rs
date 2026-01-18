@@ -172,8 +172,6 @@ pub struct AudioMixer {
 }
 
 impl AudioMixer {
-    /// Create a new AudioMixer with the provided shared sources and listener state.
-    /// Helper to construct the mixer.
     pub fn new(
         sources: Arc<Mutex<Vec<Py<AudioSource>>>>,
         listener_state: Arc<Mutex<ListenerState>>,
@@ -305,11 +303,9 @@ impl AudioCallback for AudioMixer {
 
                                 if let Some(fidx) = next_frame_opt {
                                     if ch == 1 || source.positional {
-                                        // mono playback (or positional sources use mono mix)
                                         let sample = if ch == 1 {
                                             samples[fidx]
                                         } else {
-                                            // average stereo to mono for positional sources
                                             let l = samples[fidx * 2];
                                             let r = samples[fidx * 2 + 1];
                                             0.5 * (l + r)
@@ -318,14 +314,11 @@ impl AudioCallback for AudioMixer {
                                         frame[0] += sample * source.current_left_gain;
                                         frame[1] += sample * source.current_right_gain;
                                     } else {
-                                        // non-positional stereo: keep channels separate
                                         let l = samples[fidx * 2];
                                         let r = samples[fidx * 2 + 1];
                                         frame[0] += l * source.current_left_gain;
                                         frame[1] += r * source.current_right_gain;
                                     }
-
-                                    // advance cursor
                                     if source.cursor + 1 < frames_available {
                                         source.cursor += 1;
                                     } else if source.looping && frames_available > 0 {
@@ -348,7 +341,5 @@ impl AudioCallback for AudioMixer {
                 }
             }
         });
-
-        // Recording support removed: do not forward mixed samples to any recorder.
     }
 }

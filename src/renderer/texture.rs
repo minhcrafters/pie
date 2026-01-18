@@ -1,15 +1,11 @@
-// pie/src/renderer/texture.rs
 use pyo3::prelude::*;
+use std::path::Path;
 
-/// Color-only Texture object exposed to Python.
-///
-/// This type no longer creates or manages GPU textures. Instead it represents a
-/// solid RGBA color (0-255 per channel). The renderer's sampling-based texture
-/// path has been removed; by not exposing a GPU `id` attribute here, existing
-/// mesh binding code that attempts to read a texture `id` will simply not find one
-/// and thus won't enable texture sampling. This enforces color-only (no texture mapping).
 #[pyclass(unsendable)]
 pub struct Texture {
+    #[pyo3(get)]
+    pub id: u32,
+
     #[pyo3(get)]
     pub r: u8,
     #[pyo3(get)]
@@ -22,28 +18,34 @@ pub struct Texture {
 
 #[pymethods]
 impl Texture {
-    /// Create a color "texture" from RGBA channels (0-255).
-    ///
-    /// Example: `Texture.from_color(255, 0, 0, 255)` creates an opaque red color.
     #[staticmethod]
     pub fn from_color(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Texture { r, g, b, a }
+        Texture { id: 0, r, g, b, a }
     }
 
-    /// Legacy shim: image loading is a no-op in color-only mode and returns a magenta
-    /// debug color to indicate a missing/invalid resource if the caller expected an image.
     #[staticmethod]
-    pub fn from_image(_path: &str) -> Self {
-        // Return magenta debug color (clearly visible)
-        Texture {
-            r: 255,
-            g: 0,
-            b: 255,
-            a: 255,
+    pub fn from_image(path: &str) -> Self {
+        match load_texture_from_file(path) {
+            Ok(id) => Texture {
+                id,
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            Err(e) => {
+                eprintln!("Failed to load texture '{}': {}", path, e);
+                Texture {
+                    id: 0,
+                    r: 255,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                }
+            }
         }
     }
 
-    /// Return color channels as normalized floats (0.0 - 1.0).
     pub fn to_rgba_f32(&self) -> (f32, f32, f32, f32) {
         (
             self.r as f32 / 255.0,
@@ -52,4 +54,86 @@ impl Texture {
             self.a as f32 / 255.0,
         )
     }
+}
+
+impl Drop for Texture {
+    fn drop(&mut self) {
+        if self.id != 0 {
+            unsafe {
+                gl::DeleteTextures(1, &self.id);
+            }
+        }
+    }
+}
+
+fn load_texture_from_file(path: &str) -> Result<u32, String> {
+    let img = image::open(Path::new(path)).map_err(|e| format!("Failed to open image: {}", e))?;
+
+    let img = img.to_rgba8();
+    let (width, height) = img.dimensions();
+    let data = img.into_raw();
+
+    let mut texture_id = 0;
+    unsafe {
+        gl::GenTextures(1, &mut texture_id);
+        gl::BindTexture(gl::TEXTURE_2D, texture_id);
+
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32,
+            width as i32,
+            height as i32,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            data.as_ptr() as *const _,
+        );
+
+        gl::GenerateMipmap(gl::TEXTURE_2D);
+
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl::TexParameteri(
+            gl::TEXTURE_2D,
+            gl::TEXTURE_MIN_FILTER,
+            gl::LINEAR_MIPMAP_LINEAR as i32,
+        );
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+
+        gl::BindTexture(gl::TEXTURE_2D, 0);
+    }
+
+    Ok(texture_id)
+}
+
+pub fn create_white_texture() -> u32 {
+    let white_pixel: [u8; 4] = [255, 255, 255, 255];
+
+    let mut texture_id = 0;
+    unsafe {
+        gl::GenTextures(1, &mut texture_id);
+        gl::BindTexture(gl::TEXTURE_2D, texture_id);
+
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32,
+            1,
+            1,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            white_pixel.as_ptr() as *const _,
+        );
+
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+
+        gl::BindTexture(gl::TEXTURE_2D, 0);
+    }
+
+    texture_id
 }

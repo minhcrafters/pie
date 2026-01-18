@@ -14,17 +14,6 @@ use crate::scene::{Camera, Entity, Light, Scene};
 use crate::audio::{AudioMixer, AudioSource, ListenerState};
 use std::sync::{Arc, Mutex};
 
-/// Wrapper for exposing SDL2 events to Python.
-///
-/// We expose a compact, but descriptive Python-visible structure that contains:
-///  - `kind`: a textual debug representation of the full SDL event
-///  - `timestamp`: the event timestamp (if available; otherwise 0)
-///  - `name`: a short event variant name (same as `kind` here, but separated for convenience)
-///  - `details`: a detailed debug representation (multi-line) useful for introspection
-///
-/// The Rust side will create `Py<SdlEvent>` objects and push them into the
-/// engine's pending queue. Python code can call `take_pending_events()` to
-/// drain the queue and inspect events.
 #[pyclass]
 pub struct SdlEvent {
     #[pyo3(get)]
@@ -55,8 +44,6 @@ pub struct Engine {
     should_quit: bool,
 
     audio_sources: Arc<Mutex<Vec<Py<AudioSource>>>>,
-    /// Pending non-input SDL events exposed to Python as `Py<SdlEvent>`.
-    /// Use `take_pending_events()` to fetch and clear the queue on the Python side.
     pending_events: Arc<Mutex<Vec<Py<SdlEvent>>>>,
     listener_state: Arc<Mutex<ListenerState>>,
 }
@@ -123,10 +110,6 @@ impl Engine {
         }));
         let listener_state_clone = listener_state.clone();
 
-        // Recording infrastructure intentionally not exposed; no local recorder handle required.
-
-        // Queue of pending SDL events to expose to Python. We store `Py<SdlEvent>`
-        // objects here so the Python side receives proper Python classes.
         let pending_events = Arc::new(Mutex::new(Vec::new()));
         let pending_events_clone = pending_events.clone();
 
@@ -138,7 +121,6 @@ impl Engine {
 
         device.resume();
 
-        // Construct engine and set default for graceful quit flag
         let engine = Engine {
             sdl_context,
             _video_subsystem: video_subsystem,
@@ -220,9 +202,6 @@ impl Engine {
         }
     }
 
-    /// Request a graceful quit of the engine.
-    /// This signals the engine to stop; on the next call `update()` will return `false`
-    /// allowing the Python-side main loop to exit cleanly.
     pub fn quit(&mut self) {
         self.stop_peripherals();
         self.should_quit = true;
@@ -286,7 +265,6 @@ impl Engine {
             });
         }
 
-        // Check for quit after processing events - if set by other code, exit the update loop
         if self.should_quit {
             return Ok(false);
         }
@@ -301,13 +279,10 @@ impl Engine {
                 state.right = camera.front.cross(camera.up).normalize_or_zero();
             }
 
-            // println!("Rendering Shadows...");
             self.render_shadows();
 
-            // println!("Rendering Geometry...");
             self.renderer.begin_geometry_pass();
 
-            // Use glam perspective
             let projection = Mat4::perspective_rh_gl(
                 self.camera.borrow(py).fov.to_radians(),
                 self.renderer.width as f32 / self.renderer.height as f32,
@@ -321,38 +296,63 @@ impl Engine {
             shader.set_mat4("view", &view);
             shader.set_mat4("projection", &projection);
 
+            shader.set_int("albedoMap", 0);
+
             for entity_py in &self.scene.entities {
                 let entity = entity_py.borrow(py);
                 if let Some(mesh) = &entity.mesh {
                     let mesh_ref = mesh.borrow(py);
-                    // Set model matrix for this entity
                     shader.set_mat4("model", &entity.transform.get_model_matrix());
-                    // Determine per-mesh albedo color (rgb) and specular intensity (a).
-                    // Mesh.color is Option<(u8,u8,u8,u8)> where channels are 0-255.
-                    if let Some((r, g, b, a)) = mesh_ref.color {
-                        let rf = r as f32 / 255.0;
-                        let gf = g as f32 / 255.0;
-                        let bf = b as f32 / 255.0;
-                        let af = a as f32 / 255.0;
-                        // Set the geometry shader's `albedoColor` uniform (vec4)
-                        unsafe {
-                            let loc = gl::GetUniformLocation(
-                                shader.id,
-                                std::ffi::CString::new("albedoColor").unwrap().as_ptr(),
-                            );
-                            gl::Uniform4f(loc, rf, gf, bf, af);
+
+                    if mesh_ref.has_submeshes() {
+                        for submesh_idx in 0..mesh_ref.submesh_count() {
+                            if let Some((r, g, b, a)) = mesh_ref.get_submesh_color(submesh_idx) {
+                                let rf = r as f32 / 255.0;
+                                let gf = g as f32 / 255.0;
+                                let bf = b as f32 / 255.0;
+                                let af = a as f32 / 255.0;
+                                unsafe {
+                                    let loc = gl::GetUniformLocation(
+                                        shader.id,
+                                        std::ffi::CString::new("albedoColor").unwrap().as_ptr(),
+                                    );
+                                    gl::Uniform4f(loc, rf, gf, bf, af);
+                                }
+                            } else {
+                                unsafe {
+                                    let loc = gl::GetUniformLocation(
+                                        shader.id,
+                                        std::ffi::CString::new("albedoColor").unwrap().as_ptr(),
+                                    );
+                                    gl::Uniform4f(loc, 1.0, 1.0, 1.0, 0.5);
+                                }
+                            }
+                            mesh_ref.draw_submesh(submesh_idx);
                         }
                     } else {
-                        // Default material color (fallback)
-                        unsafe {
-                            let loc = gl::GetUniformLocation(
-                                shader.id,
-                                std::ffi::CString::new("albedoColor").unwrap().as_ptr(),
-                            );
-                            gl::Uniform4f(loc, 0.95, 0.95, 0.95, 0.5);
+                        if let Some((r, g, b, a)) = mesh_ref.color {
+                            let rf = r as f32 / 255.0;
+                            let gf = g as f32 / 255.0;
+                            let bf = b as f32 / 255.0;
+                            let af = a as f32 / 255.0;
+                            unsafe {
+                                let loc = gl::GetUniformLocation(
+                                    shader.id,
+                                    std::ffi::CString::new("albedoColor").unwrap().as_ptr(),
+                                );
+                                gl::Uniform4f(loc, rf, gf, bf, af);
+                            }
+                        } else {
+                            unsafe {
+                                let loc = gl::GetUniformLocation(
+                                    shader.id,
+                                    std::ffi::CString::new("albedoColor").unwrap().as_ptr(),
+                                );
+                                gl::Uniform4f(loc, 1.0, 1.0, 1.0, 0.5);
+                            }
                         }
+                        mesh_ref.draw();
                     }
-                    mesh_ref.draw();
                 }
             }
 
@@ -360,7 +360,6 @@ impl Engine {
 
             self.renderer.begin_lighting_pass();
 
-            // Pass lights to shader
             let shader = &self.renderer.lighting_shader;
             shader.use_program();
             shader.set_vec3("viewPos", &self.camera.borrow(py).position);
@@ -371,7 +370,6 @@ impl Engine {
             let mut directional_light_index = None;
             let mut first_point_light_index = None;
 
-            // Find first directional and first point light indices
             for (i, light_py) in lights.iter().enumerate() {
                 let light = light_py.borrow(py);
                 if light.light_type == LightType::Directional && directional_light_index.is_none() {
@@ -404,7 +402,6 @@ impl Engine {
                 shader.set_float(&name_quad, quadratic);
                 shader.set_float(&name_rad, light.radius);
 
-                // Set shadow flags - all directional and point lights can have shadows
                 let has_shadow = if light.light_type == LightType::Directional
                     || light.light_type == LightType::Point
                 {
@@ -414,64 +411,28 @@ impl Engine {
                 };
                 shader.set_int(&name_has_shadow, has_shadow);
 
-                // Set shadow map index for point lights
                 let shadow_map_index = if light.light_type == LightType::Point {
                     let index = point_light_count;
                     point_light_count += 1;
                     index
                 } else {
-                    0 // Not used for directional lights
+                    0
                 };
                 let name_shadow_index = format!("lights[{}].ShadowMapIndex", i);
                 shader.set_int(&name_shadow_index, shadow_map_index);
 
-                if light.light_type == LightType::Directional {
-                    // Treat `light.position` as a direction vector. Compute a world-space
-                    // transform for the directional light and pass the direction to the
-                    // lighting shader using the `directionalLightDir` uniform. Also set
-                    // the directional light's shadow matrix under the `directionalLightSpaceMatrix`
-                    // uniform so the lighting shader can sample the shadow map.
-                    let dir = if light.position.length_squared() > 0.000001 {
-                        light.position.normalize()
-                    } else {
-                        Vec3::new(0.0, -1.0, 0.0)
-                    };
-                    // We want `directionalLightDir` to point from the fragment toward the light,
-                    // so negate the stored direction (stored as `light.position`) here.
-                    let directional_light_dir = -dir;
-                    let light_pos = directional_light_dir * 30.0;
-                    let light_projection =
-                        Mat4::orthographic_rh_gl(-10.0, 10.0, -10.0, 10.0, 1.0, 7.5);
-                    let light_view = Mat4::look_at_rh(light_pos, Vec3::ZERO, Vec3::Y);
-                    let light_space_matrix = light_projection * light_view;
-                    // Pass both the light-space matrix and the direction into the lighting shader.
-                    shader.set_mat4("directionalLightSpaceMatrix", &light_space_matrix);
-                    shader.set_vec3("directionalLightDir", &directional_light_dir);
-                    // Bind directional shadow map to the texture unit expected by the shader (3).
-                    unsafe {
-                        gl::ActiveTexture(gl::TEXTURE3);
-                        gl::BindTexture(gl::TEXTURE_2D, self.renderer.directional_shadow_map);
-                    }
-                } else if light.light_type == LightType::Point {
+                if light.light_type == LightType::Point {
                     shader.set_float("farPlane", 25.0);
                 }
             }
 
-            // Render lighting pass into HDR color (fullscreen quad)
             self.renderer.render_quad();
 
-            // Copy depth from geometry-pass (G-buffer) into HDR FBO so spheres depth-test correctly.
             self.renderer.blit_depth_from_gbuffer_to_hdr();
 
-            // Render unshaded sphere meshes for each point light (visualization + contribute to HDR/bloom)
-            // This runs while HDR framebuffer is bound (we called begin_lighting_pass before entering this closure),
-            // and uses the view/projection matrices already available in this scope.
             for light_py in &self.scene.lights {
                 let light = light_py.borrow(py);
                 if light.light_type == LightType::Point {
-                    // Use the Rust-side `light.radius` field directly so runtime assignments from Python
-                    // (via pyo3) update the value that we read here.
-                    // Increase visual scale multiplier so sphere size follows radius more noticeably.
                     let visual_scale = light.radius * 0.2;
                     let model = Mat4::from_scale_rotation_translation(
                         Vec3::splat(visual_scale),
@@ -495,7 +456,6 @@ impl Engine {
         // 10 iterations is a common choice (5 horizontal + 5 vertical).
         self.renderer.apply_gaussian_blur(10);
 
-        // Composite (tone mapping + additive bloom)
         self.renderer.begin_composite_pass();
         self.renderer.render_quad();
 
@@ -506,8 +466,6 @@ impl Engine {
         Ok(true)
     }
 
-    /// Return and clear any pending non-input SDL events queued for Python.
-    /// The returned list contains `SdlEvent` Python objects.
     pub fn poll_events(&mut self) -> PyResult<Vec<Py<SdlEvent>>> {
         if let Ok(mut q) = self.pending_events.lock() {
             let events: Vec<Py<SdlEvent>> = q.drain(..).collect();
@@ -543,16 +501,9 @@ impl Engine {
 }
 
 impl Engine {
-    /// Stop peripherals like audio and release mouse capture. Safe to call multiple times.
     fn stop_peripherals(&mut self) {
-        // Pause the audio device so the audio callback stops running
         self._audio_device.pause();
 
-        // Ensure all audio sources stop playing.
-        // Acquire the Python GIL before locking the sources mutex to avoid deadlocks
-        // that can occur if the audio callback thread holds the mutex while code on the
-        // main thread tries to acquire the GIL (or vice-versa). We attach to the Python
-        // interpreter first, then lock the mutex while the GIL is held.
         Python::attach(|py| {
             if let Ok(mut sources) = self.audio_sources.lock() {
                 for src in sources.iter_mut() {
@@ -563,12 +514,7 @@ impl Engine {
             }
         });
 
-        // Release any mouse capture
         self.set_mouse_capture(false);
-
-        // Note: other subsystems (GL context, audio subsystem) will be released when
-        // the Engine is dropped. Pausing audio and stopping sources
-        // prevents lingering activity while the application shuts down.
     }
 
     fn render_shadows(&mut self) {
@@ -577,7 +523,6 @@ impl Engine {
             let mut directional_light_index = None;
             let mut first_point_light_index = None;
 
-            // Find first directional and first point light indices
             for (i, light_py) in lights.iter().enumerate() {
                 let light = light_py.borrow(py);
                 if light.light_type == LightType::Directional && directional_light_index.is_none() {
@@ -588,23 +533,17 @@ impl Engine {
                 }
             }
 
-            // Render directional shadow map
             if let Some(dir_index) = directional_light_index {
                 let light_py = &lights[dir_index];
                 let light = light_py.borrow(py);
-                // For directional lights, position is actually direction. Calculate light position far away
                 let light_direction = -light.position.normalize();
-                let light_pos = light_direction * 30.0; // Position light far away in the direction it's coming from
+                let light_pos = light_direction * 30.0;
 
                 self.renderer.begin_directional_shadow_pass();
 
                 let light_projection =
                     Mat4::orthographic_rh_gl(-20.0, 20.0, -20.0, 20.0, 1.0, 50.0);
-                let light_view = Mat4::look_at_rh(
-                    light_pos,
-                    Vec3::ZERO, // Look at scene center
-                    Vec3::Y,
-                );
+                let light_view = Mat4::look_at_rh(light_pos, Vec3::ZERO, Vec3::Y);
                 let light_space_matrix = light_projection * light_view;
 
                 let shader = &self.renderer.directional_shadow_shader;
@@ -621,7 +560,6 @@ impl Engine {
 
                 self.renderer.end_directional_shadow_pass();
 
-                // Pass to lighting shader
                 let lighting_shader = &self.renderer.lighting_shader;
                 lighting_shader.use_program();
                 lighting_shader.set_mat4("directionalLightSpaceMatrix", &light_space_matrix);
@@ -632,7 +570,6 @@ impl Engine {
                 }
             }
 
-            // Render point light shadows
             let mut point_light_shadow_index = 0;
             for light_py in lights.iter() {
                 let light = light_py.borrow(py);
@@ -664,7 +601,6 @@ impl Engine {
                         self.renderer.end_point_shadow_pass();
                     }
 
-                    // Bind the shadow map to the appropriate texture unit
                     let lighting_shader = &self.renderer.lighting_shader;
                     lighting_shader.use_program();
                     unsafe {

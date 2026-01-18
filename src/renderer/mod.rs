@@ -16,25 +16,22 @@ pub struct Renderer {
     hdr_fbo: u32,
     hdr_color: u32,
 
-    // Bloom
     bloom_fbo: u32,
-    bloom_color: u32,         // bright-pass capture
-    pingpong_fbos: [u32; 2],  // for separable blur
-    pingpong_color: [u32; 2], // color attachments for ping-pong
-    bloom_output: u32,        // stores the final blurred texture id (one of pingpong_color)
+    bloom_color: u32,
+    pingpong_fbos: [u32; 2],
+    pingpong_color: [u32; 2],
+    bloom_output: u32,
     bloom_shader: Shader,
     blur_shader: Shader,
     pub bloom_enabled: bool,
     pub bloom_threshold: f32,
     pub bloom_intensity: f32,
 
-    // Shadow mapping
     pub directional_shadow_fbo: u32,
     pub directional_shadow_map: u32,
-    pub point_shadow_fbos: Vec<[u32; 6]>, // For cube map faces per light
-    pub point_shadow_maps: Vec<u32>,      // Cube maps per light
+    pub point_shadow_fbos: Vec<[u32; 6]>,
+    pub point_shadow_maps: Vec<u32>,
 
-    // Shaders
     pub geometry_shader: Shader,
     pub lighting_shader: Shader,
     pub composite_shader: Shader,
@@ -43,7 +40,6 @@ pub struct Renderer {
 
     quad_vao: u32,
 
-    // Light-sphere visualization for point lights (unshaded emissive sphere)
     light_sphere: mesh::Mesh,
     light_sphere_shader: Shader,
 
@@ -115,7 +111,6 @@ impl Renderer {
         lighting_shader.set_int("gAlbedoSpec", 2);
         lighting_shader.set_int("directionalShadowMap", 3);
 
-        // Point shadow maps start at texture unit 4
         for i in 0..16 {
             let uniform_name = format!("pointShadowMaps[{}]", i);
             lighting_shader.set_int(&uniform_name, 4 + i);
@@ -173,7 +168,6 @@ impl Renderer {
     }
 
     pub fn configure_point_lights(&mut self, num_point_lights: usize) {
-        // Clean up existing point shadow resources
         unsafe {
             for fbos in &self.point_shadow_fbos {
                 gl::DeleteFramebuffers(6, fbos.as_ptr());
@@ -186,7 +180,6 @@ impl Renderer {
         self.point_shadow_fbos.clear();
         self.point_shadow_maps.clear();
 
-        // Create new point shadow resources
         for _ in 0..num_point_lights {
             let (fbos, map) = unsafe { create_point_shadow_buffer() };
             self.point_shadow_fbos.push(fbos);
@@ -200,7 +193,6 @@ impl Renderer {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
         self.composite_shader.use_program();
-        // composite shader expects scene at 0 and bloomBlur at 1
         self.composite_shader.set_int("scene", 0);
         self.composite_shader.set_int("bloomBlur", 1);
         self.composite_shader.set_int("toneMappingMode", 1);
@@ -209,11 +201,9 @@ impl Renderer {
             .set_float("bloomIntensity", self.bloom_intensity);
 
         unsafe {
-            // bind the HDR color buffer as the source texture for tonemapping (unit 0)
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, self.hdr_color);
 
-            // bind blurred bloom texture as unit 1
             gl::ActiveTexture(gl::TEXTURE1);
             gl::BindTexture(gl::TEXTURE_2D, self.bloom_output);
         }
@@ -231,7 +221,6 @@ impl Renderer {
             gl::DeleteFramebuffers(1, &self.hdr_fbo);
             gl::DeleteTextures(1, &self.hdr_color);
 
-            // delete bloom resources
             gl::DeleteFramebuffers(1, &self.bloom_fbo);
             gl::DeleteTextures(1, &self.bloom_color);
             gl::DeleteFramebuffers(2, self.pingpong_fbos.as_ptr());
@@ -243,12 +232,10 @@ impl Renderer {
             self.g_normal = gn;
             self.g_albedo_spec = ga;
             self.rbo_depth = rdo;
-            // create_hdr_buffer now returns (fbo, hdr_color)
             let (hf, hc) = create_hdr_buffer(width, height);
             self.hdr_fbo = hf;
             self.hdr_color = hc;
 
-            // recreate bloom buffers
             let (bf, bc) = create_bloom_buffer(width, height);
             self.bloom_fbo = bf;
             self.bloom_color = bc;
@@ -267,7 +254,6 @@ impl Renderer {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
         self.geometry_shader.use_program();
-        // Set matrices elsewhere or pass them here
     }
 
     pub fn get_geometry_shader(&self) -> &Shader {
@@ -282,7 +268,6 @@ impl Renderer {
 
     pub fn begin_lighting_pass(&self) {
         unsafe {
-            // Render lighting into HDR framebuffer
             gl::BindFramebuffer(gl::FRAMEBUFFER, self.hdr_fbo);
             gl::Viewport(0, 0, self.width as i32, self.height as i32);
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
@@ -297,8 +282,6 @@ impl Renderer {
         }
     }
 
-    /// Begin bright-pass extraction into bloom FBO.
-    /// Should be called after lighting pass finishes (HDR color contains scene).
     pub fn begin_bloom_extract_pass(&self) {
         if !self.bloom_enabled {
             return;
@@ -310,17 +293,14 @@ impl Renderer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
         }
         self.bloom_shader.use_program();
-        // bind the HDR scene color (first HDR attachment) to texture unit 0 so bloom extracts bright areas from the full scene
         unsafe {
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, self.hdr_color);
         }
-        // set threshold uniform
         self.bloom_shader
             .set_float("threshold", self.bloom_threshold);
     }
 
-    /// Unbind bloom FBO (returns to default framebuffer).
     pub fn end_bloom_extract_pass(&self) {
         if !self.bloom_enabled {
             return;
@@ -330,11 +310,8 @@ impl Renderer {
         }
     }
 
-    /// Perform separable Gaussian blur on the bright-pass texture using ping-pong FBOs.
-    /// This function updates `bloom_output` to the resulting blurred texture id.
     pub fn apply_gaussian_blur(&mut self, iterations: i32) {
         if !self.bloom_enabled {
-            // set output to a 1x1 black texture (or just keep a valid texture)
             self.bloom_output = self.pingpong_color[0];
             return;
         }
@@ -348,40 +325,31 @@ impl Renderer {
         for _ in 0..iterations {
             let idx = if horizontal { 1 } else { 0 };
             unsafe {
-                // Bind the pingpong framebuffer for writing
                 gl::BindFramebuffer(gl::FRAMEBUFFER, self.pingpong_fbos[idx]);
                 gl::Viewport(0, 0, self.width as i32, self.height as i32);
-                // Set the horizontal uniform
             }
-            // set horizontal uniform on shader (as int 0/1)
             self.blur_shader
                 .set_int("horizontal", if horizontal { 1 } else { 0 });
 
             unsafe {
-                // Bind the correct source texture to texture unit 0
                 gl::ActiveTexture(gl::TEXTURE0);
             }
             if first_iteration {
-                // source is bloom_color (bright-pass)
                 read_tex = self.bloom_color;
                 first_iteration = false;
             } else {
-                // source toggles between pingpong_color[0/1]
                 read_tex = self.pingpong_color[if horizontal { 0 } else { 1 }];
             }
 
             unsafe {
                 gl::BindTexture(gl::TEXTURE_2D, read_tex);
-                // Render screen quad
                 self.render_quad();
-                // Unbind framebuffer after drawing to it
                 gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
             }
 
             horizontal = !horizontal;
         }
 
-        // After finishing, the last written buffer is the opposite of horizontal (since toggled at end)
         let final_idx = if horizontal { 0 } else { 1 };
         self.bloom_output = self.pingpong_color[final_idx];
     }
@@ -394,10 +362,6 @@ impl Renderer {
         }
     }
 
-    /// Render an unshaded sphere for a point light.
-    /// Caller must supply model, view, projection matrices and the light color.
-    /// This draws the prebuilt icosphere mesh with a simple unlit shader so the sphere appears as a solid color without lighting.
-    /// The sphere will depth-test correctly against the scene and other spheres because we ensure the HDR framebuffer has the scene depth.
     pub fn render_sphere_at(
         &self,
         model: &glam::Mat4,
@@ -410,31 +374,21 @@ impl Renderer {
         self.light_sphere_shader.set_mat4("view", view);
         self.light_sphere_shader.set_mat4("projection", projection);
         self.light_sphere_shader.set_vec3("color", color);
-        // Compute intensity from the model's scale so intensity follows the sphere's visual radius.
-        // Extract scale/rotation/translation from the model matrix and derive a scalar scale:
         let (scale, _rot, _trans) = model.to_scale_rotation_translation();
         let s = scale.x.max(scale.y).max(scale.z);
-        // Choose a multiplier to produce a noticeable HDR intensity for bloom.
-        // Tweak this factor if spheres appear too dim/bright.
         let intensity = s * 20.0;
         self.light_sphere_shader.set_float("intensity", intensity);
 
-        // Ensure the HDR framebuffer has the scene depth copied into it beforehand (caller).
-        // Now enable depth testing and depth writes so spheres depth-test correctly.
         unsafe {
             gl::Enable(gl::DEPTH_TEST);
             gl::DepthMask(gl::TRUE);
         }
 
-        // Draw the mesh (mesh::Mesh::draw uses the provided shader only to bind VAO and draw elements)
         self.light_sphere.draw();
-
-        // No special GL state to restore here because we left depth testing on.
     }
 
     pub fn blit_depth_from_gbuffer_to_hdr(&self) {
         unsafe {
-            // Bind G-buffer as read framebuffer and HDR as draw, then blit depth.
             gl::BindFramebuffer(gl::READ_FRAMEBUFFER, self.g_buffer);
             gl::BindFramebuffer(gl::DRAW_FRAMEBUFFER, self.hdr_fbo);
             gl::BlitFramebuffer(
@@ -449,7 +403,6 @@ impl Renderer {
                 gl::DEPTH_BUFFER_BIT,
                 gl::NEAREST,
             );
-            // Re-bind HDR framebuffer for further rendering
             gl::BindFramebuffer(gl::FRAMEBUFFER, self.hdr_fbo);
         }
     }
@@ -457,16 +410,16 @@ impl Renderer {
     pub fn begin_directional_shadow_pass(&self) {
         unsafe {
             gl::BindFramebuffer(gl::FRAMEBUFFER, self.directional_shadow_fbo);
-            gl::Viewport(0, 0, 2048, 2048); // Shadow map resolution
+            gl::Viewport(0, 0, 2048, 2048);
             gl::Clear(gl::DEPTH_BUFFER_BIT);
-            gl::CullFace(gl::FRONT); // Prevent shadow acne
+            gl::CullFace(gl::FRONT);
         }
         self.directional_shadow_shader.use_program();
     }
 
     pub fn end_directional_shadow_pass(&self) {
         unsafe {
-            gl::CullFace(gl::BACK); // Reset culling
+            gl::CullFace(gl::BACK);
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
         }
     }
@@ -474,7 +427,7 @@ impl Renderer {
     pub fn begin_point_shadow_pass(&self, light_index: usize, face: usize) {
         unsafe {
             gl::BindFramebuffer(gl::FRAMEBUFFER, self.point_shadow_fbos[light_index][face]);
-            gl::Viewport(0, 0, 1024, 1024); // Cube map face resolution
+            gl::Viewport(0, 0, 1024, 1024);
             gl::Clear(gl::DEPTH_BUFFER_BIT);
             gl::CullFace(gl::FRONT);
         }
@@ -718,9 +671,7 @@ unsafe fn create_g_buffer(width: u32, height: u32) -> (u32, u32, u32, u32, u32) 
             rbo_depth,
         );
 
-        if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
-            // println!("Framebuffer not complete!");
-        }
+        if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {}
 
         gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
 
@@ -729,7 +680,6 @@ unsafe fn create_g_buffer(width: u32, height: u32) -> (u32, u32, u32, u32, u32) 
 }
 
 unsafe fn create_hdr_buffer(width: u32, height: u32) -> (u32, u32) {
-    // Returns (fbo, hdr_color)
     let mut fbo = 0;
     let mut color = 0;
     let mut rbo = 0;
@@ -737,7 +687,6 @@ unsafe fn create_hdr_buffer(width: u32, height: u32) -> (u32, u32) {
         gl::GenFramebuffers(1, &mut fbo);
         gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
 
-        // Main HDR color attachment (scene lighting)
         gl::GenTextures(1, &mut color);
         gl::BindTexture(gl::TEXTURE_2D, color);
         gl::TexImage2D(
@@ -761,11 +710,9 @@ unsafe fn create_hdr_buffer(width: u32, height: u32) -> (u32, u32) {
             0,
         );
 
-        // Specify that we will draw to the color attachment (lighting shader writes to this output)
         let attachments = [gl::COLOR_ATTACHMENT0];
         gl::DrawBuffers(1, attachments.as_ptr());
 
-        // Depth renderbuffer
         gl::GenRenderbuffers(1, &mut rbo);
         gl::BindRenderbuffer(gl::RENDERBUFFER, rbo);
         gl::RenderbufferStorage(
@@ -776,16 +723,13 @@ unsafe fn create_hdr_buffer(width: u32, height: u32) -> (u32, u32) {
         );
         gl::FramebufferRenderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, rbo);
 
-        if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
-            // framebuffer incomplete
-        }
+        if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {}
 
         gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
     }
     (fbo, color)
 }
 
-/// Create bloom bright-pass framebuffer & texture
 unsafe fn create_bloom_buffer(width: u32, height: u32) -> (u32, u32) {
     let mut fbo = 0;
     let mut color = 0;
@@ -828,7 +772,6 @@ unsafe fn create_bloom_buffer(width: u32, height: u32) -> (u32, u32) {
     (fbo, color)
 }
 
-/// Create two ping-pong framebuffers + textures used for separable blur
 unsafe fn create_pingpong_buffers(width: u32, height: u32) -> ([u32; 2], [u32; 2]) {
     let mut fbos = [0u32; 2];
     let mut colors = [0u32; 2];

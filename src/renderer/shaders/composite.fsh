@@ -10,20 +10,15 @@ uniform float bloomIntensity; // multiplier for bloom contribution (0.0 = disabl
 
 void main() {
     const float gamma = 2.2;
-    // Sample HDR scene color
     vec3 hdrColor = texture(scene, TexCoords).rgb;
 
-    // Sample blurred bloom texture and combine
     vec3 bloomColor = texture(bloomBlur, TexCoords).rgb;
     vec3 combined = hdrColor + bloomColor * bloomIntensity;
 
-    // Tone Mapping
     vec3 result = vec3(0.0);
     if (toneMappingMode == 0) {
-        // Reinhard
         result = combined / (combined + vec3(1.0));
     } else {
-        // Filmic (ACES Knarkowicz)
         vec3 x = combined * exposure;
         float a = 2.51;
         float b = 0.03;
@@ -33,7 +28,6 @@ void main() {
         result = clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
     }
 
-    // Gamma correction
     result = pow(result, vec3(1.0 / gamma));
     FragColor = vec4(result, 1.0);
 }

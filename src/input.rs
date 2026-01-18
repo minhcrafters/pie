@@ -28,7 +28,6 @@ impl InputState {
                 keycode: Some(k), ..
             } => {
                 self.pressed_keys.insert(k.name());
-                // println!("{}", k.name());
             }
             Event::KeyUp {
                 keycode: Some(k), ..
@@ -51,16 +50,9 @@ impl InputState {
         }
     }
 
-    // Clear relative mouse movement at start of frame/update if needed?
-    // SDL2 Event::MouseMotion gives relative since last event.
-    // Accumulating for the frame might be needed if multiple events ?
-    // Or just clearing it before polling events.
     pub fn prepare_update(&mut self) {
         self.mouse_rel = Vec2::ZERO;
     }
-
-    // If multiple motion events happen in one frame, we should accumulate rel.
-    // So process_event should add to rel, and prepare_update should zero it.
 
     pub fn is_key_down(&self, key: &str) -> bool {
         self.pressed_keys.contains(key)

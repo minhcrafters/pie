@@ -245,16 +245,13 @@ impl Light {
 
     #[staticmethod]
     pub fn directional(r: f32, g: f32, b: f32) -> Self {
-        // Directional lights don't use radius.
         Light {
-            position: Vec3::new(0.0, 0.0, 0.0), // For directional, this represents direction
+            position: Vec3::new(0.0, 0.0, 0.0),
             color: Vec3::new(r, g, b),
-            radius: 0.0, // Not used for directional lights
+            radius: 0.0,
             light_type: LightType::Directional,
         }
     }
-
-    // Radius is exposed via #[pyo3(get, set)] on the struct; no custom getter/setter required here.
 
     #[getter]
     pub fn get_position(&self) -> (f32, f32, f32) {
