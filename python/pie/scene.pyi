@@ -1,4 +1,4 @@
-from typing import Tuple, List, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
     from .entity import Entity

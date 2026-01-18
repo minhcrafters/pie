@@ -6,9 +6,6 @@ build-backend = "maturin"
 name = "pie"
 version = "0.1"
 requires-python = ">=3.7"
-dependencies = [
-    "numpy",
-]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
