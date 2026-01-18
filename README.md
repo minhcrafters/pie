@@ -7,6 +7,7 @@
 ## TODO
 
 - [ ] Refactor syntax to make it not sophisticated
+- [ ] Refactor codebase for scalability
 - [ ] Texture mapping
 - [ ] Skyboxes
 - [ ] Physics (with `rapier3d`)
